@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Path to the PFIG database
+DB='sqlitedb.db'
+# The number of navigations to predict
+NUM=63
+
+echo "Making required directories..."
+mkdir bin
+mkdir output
+echo "Removing old class files..."
+rm -v bin/*.class
+echo "Removing old user jar files..."
+rm -v lib/TFIDF.jar
+echo "Removing old output..."
+rm -vr output/*
+echo "Compiling TFIDFIndex.java..."
+javac -sourcepath src/java -d bin src/java/Stemmer.java src/java/TFIDFIndex.java src/java/Util.java
+echo "Building TFIDF.jar"
+jar -cf lib/TFIDF.jar -C bin Stemmer.class -C bin TFIDFIndex.class -C bin TFIDFIndex\$QueryResult.class -C bin Util.class
+echo "Compiling BuildNaiveModelFiles.java..."
+javac -sourcepath src/java -cp lib/joda-time-1.6.jar:lib/sqlitejdbc-v056.jar -d bin src/java/BuildNaiveModelFiles.java
+echo "Executing BuildNaiveModelFiles.java..."
+java -cp bin:lib/joda-time-1.6.jar:lib/sqlitejdbc-v056.jar BuildNaiveModelFiles
+
+
+COUNTER=2
+while [  $COUNTER -lt 63 ]; do
+    echo "Executing naive models for navigation # $COUNTER..."
+    echo "Creating document repository for TF-IDF..."
+    python src/python/createDocs.py output/nav_$COUNTER/$DB output/docs
+    echo "Scoring methods with TF-IDF..."
+    jython src/jython/tfidf.py output/docs
+    echo "Executing naive models..."
+    python src/python/pfis2-participantK.py output/nav_$COUNTER/$DB output/docs/ output/nav_$COUNTER
+    echo "Executing naive clickable model..."
+    python src/python/naiveClickable.py output/nav_$COUNTER/$DB data/je.txt output/nav_$COUNTER
+    let COUNTER=COUNTER+1 
+done
+
+COUNTER=2
+echo "Combining results..."
+while [  $COUNTER -lt 63 ]; do
+    cat output/nav_$COUNTER/naiveFrequency.csv >> output/naiveFrequencyAll.csv
+    cat output/nav_$COUNTER/naiveRecency.csv >> output/naiveRecencyAll.csv
+    cat output/nav_$COUNTER/naiveTfidf.csv >> output/naiveTfidfAll.csv
+    cat output/nav_$COUNTER/naiveAdjacency.csv >> output/naiveAdjacencyAll.csv
+    cat output/nav_$COUNTER/naiveCalledMethod.csv >> output/naiveCalledMethodAll.csv
+    cat output/nav_$COUNTER/naiveDirectedCalledMethod.csv >> output/naiveDirectedCalledMethodAll.csv
+    cat output/nav_$COUNTER/naiveClickable.csv >> output/naiveClickableAll.csv
+    let COUNTER=COUNTER+1 
+done
+
+echo "Done.  See .csv files in output directory for results."
